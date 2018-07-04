@@ -19,11 +19,9 @@ package gobib
 
 import (
 	"bufio"
-	"container/list"
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"strings"
 	"time"
 )
@@ -41,6 +39,17 @@ import (
 
 // BibItem is the constant that represents '\bibitem'
 const BibItem = "\\bibitem{"
+
+// EndBibliography is the constant: '\end{thebibliography}'
+const EndBibliography = "\\end{thebibliography}"
+
+// ErrBibUnclosed is an error that is returned when reading from the
+// bib file and EOF is reached without seeing \end{thebibliography}
+var ErrBibUnclosed = errors.New("Missing \\end{thebibliography}")
+
+// ErrBibEmpty is an error that is returned when reading from
+// an empty bibliography
+var ErrBibEmpty = errors.New("Empty bibliography")
 
 // BibtexEntry is an interface that defines that basic behaviour
 // of a BibtexEntry: returning a key to be used as key, and a String()
@@ -155,18 +164,16 @@ func NewConverter(c *Config) *Tex2BibConverter {
 	}
 }
 
-// divider take an input
-func divider(reader *bufio.Reader) (*list.List, error) {
-	// line, _, err := reader.ReadLine()
+// divider take a reader that contains a bibliography and it divides
+// it into different string, each string is a bibitem that still
+// need to be parsed.
+// reader is the reader which items will be read from
+// output is a channel which items will be written to
+// errChan is a channel which errors will be written to
+// When an error occurs, output channel is closed
+func divider(reader *bufio.Reader, output chan<- string, errChan chan<- error) {
+
 	// entries := list.New()
-	// if err != nil {
-	// 	if err == io.EOF {
-	// 		return nil, errors.New("empty")
-	// 	}
-	// 	return nil, err
-	// }
-	// readLine := string(line)
-	entries := list.New()
 	var line []byte
 	var readLine string
 	var err error
@@ -181,9 +188,12 @@ func divider(reader *bufio.Reader) (*list.List, error) {
 
 		if err != nil {
 			if err == io.EOF {
-				return nil, errors.New("empty")
+				err = ErrBibEmpty
 			}
-			return entries, err
+			innerLoop = false
+			bibitemFindLoop = false
+			errChan <- err
+			close(output)
 		}
 
 		readLine = string(line)
@@ -198,26 +208,35 @@ func divider(reader *bufio.Reader) (*list.List, error) {
 	// SECOND LOOP: till the end of the file
 	for innerLoop {
 
-		line, _, err := reader.ReadLine()
+		line, _, err = reader.ReadLine()
 		readLine = string(line)
 
-		log.Printf("Read INNER: %s\n", readLine)
-
 		if err != nil {
+			// OLD VERSION: treat io.EOF as a non-error but it's wrong because
+
+			// if there's an error we exit from the loop
 			if err == io.EOF {
-				innerLoop = false
-				entries.PushBack(currentEntry.String())
-			} else {
-				return entries, err
+				err = ErrBibUnclosed
 			}
+			errChan <- err
+			innerLoop = false
+			// entries.PushBack(currentEntry.String())
+			output <- currentEntry.String()
+			close(output)
 		}
 
 		if strings.Contains(readLine, BibItem) {
 			// we're at the end of this bibitem
 			// we push the current item to the list
 			// and we reset the Builder for holding the next entry
-			entries.PushBack(currentEntry.String())
+			// entries.PushBack(currentEntry.String())
+			output <- currentEntry.String()
 			currentEntry.Reset()
+		} else if strings.Contains(readLine, EndBibliography) {
+			// the bibliography is finished
+			innerLoop = false
+			// entries.PushBack(currentEntry.String())
+			output <- currentEntry.String()
 		} else {
 			// if here, it's just another line of our entry
 			// we trim spaces and we write it to the Builder
@@ -227,5 +246,4 @@ func divider(reader *bufio.Reader) (*list.List, error) {
 			}
 		}
 	}
-	return entries, nil
 }

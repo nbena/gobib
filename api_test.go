@@ -18,13 +18,22 @@
 package gobib
 
 import (
-	"container/list"
-	"fmt"
 	"strings"
 	"testing"
 )
 
-const bibliography = `
+const correctBibliography = `
+\begin{thebibliography}
+	\bibitem{}
+	Ross Anderson, Why Cryptosystems Fail
+
+	\bibitem{}
+	Ross Anderson, Why Cryptosystems Don't Fail
+\end{thebibliography}
+`
+
+const wrongBibliography = `
+\begin{thebibliography}
 	\bibitem{}
 	Ross Anderson, Why Cryptosystems Fail
 
@@ -32,7 +41,9 @@ const bibliography = `
 	Ross Anderson, Why Cryptosystems Don't Fail
 `
 
-var bibliographyReader = strings.NewReader(bibliography)
+var bibliographyReader = strings.NewReader(correctBibliography)
+var wrongBibliographyReader = strings.NewReader(wrongBibliography)
+var emptyBibliographyReader = strings.NewReader("")
 var bibliographyWriter strings.Builder
 
 type converterTest struct {
@@ -59,27 +70,73 @@ func initConverter(c *Config) *converterTest {
 	return &converterTest{converter}
 }
 
-func (c *converterTest) runDivider() (*list.List, error) {
-	return divider(c.Converter.reader)
+func (c *converterTest) runDivider() (chan string, chan error) {
+	output := make(chan string, 2)
+	errChan := make(chan error, 2)
+	go divider(c.Converter.reader, output, errChan)
+	return output, errChan
 }
 
-func TestDivider1(t *testing.T) {
+func TestDividerOk(t *testing.T) {
 	converter := initConverter(&Config{
 		Input:  bibliographyReader,
 		Output: &bibliographyWriter,
 	})
 
-	// expected := strings.Replace(bibliography, "\\bibitem{}\n", "", -1)
-	// expected = strings.TrimSpace(expected)
-	got, err := converter.runDivider()
+	expectedLen := 2
+	output, errChan := converter.runDivider()
+	var entriesLen int
+	var err error
+	loop := true
+	for loop {
+		select {
+		case <-output:
+			entriesLen++
+			if entriesLen == expectedLen {
+				loop = false
+			}
+		case err = <-errChan:
+			loop = false
+		}
+	}
 	if err != nil {
 		t.Fatal("Got error while dividing")
 	}
-	if got.Len() != 2 {
+	if entriesLen != 2 {
 		t.Errorf("Error, mismatch length in list")
 	}
 
-	for e := got.Front(); e != nil; e = e.Next() {
-		fmt.Printf("Entry " + e.Value.(string) + "\n")
+	// for e := got.Front(); e != nil; e = e.Next() {
+	// 	fmt.Printf("Entry " + e.Value.(string) + "\n")
+	// }
+}
+
+func TestDividerNoEnd(t *testing.T) {
+	converter := initConverter(&Config{
+		Input:  wrongBibliographyReader,
+		Output: &bibliographyWriter,
+	})
+
+	_, errChan := converter.runDivider()
+	err := <-errChan
+	if err == nil {
+		t.Fatalf("error is nil")
+	} else if err != ErrBibUnclosed {
+		t.Fatalf("err != ErrBibUnclosed" + err.Error())
+	}
+}
+
+func TestEmptyDivider(t *testing.T) {
+	converter := initConverter(&Config{
+		Input:  wrongBibliographyReader,
+		Output: &bibliographyWriter,
+	})
+
+	_, errChan := converter.runDivider()
+	err := <-errChan
+	if err == nil {
+		t.Fatalf("error is nil")
+	} else if err != ErrBibEmpty {
+		t.Fatalf("err != ErrBibEmpty" + err.Error())
 	}
 }
