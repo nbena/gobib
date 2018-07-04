@@ -26,7 +26,10 @@ import (
 
 const bibliography = `
 	\bibitem{}
-	Ross Anderson, Why Cryptosystem Fails
+	Ross Anderson, Why Cryptosystems Fail
+
+	\bibitem{}
+	Ross Anderson, Why Cryptosystems Don't Fail
 `
 
 var bibliographyReader = strings.NewReader(bibliography)
@@ -72,7 +75,11 @@ func TestDivider1(t *testing.T) {
 	if err != nil {
 		t.Fatal("Got error while dividing")
 	}
+	if got.Len() != 2 {
+		t.Errorf("Error, mismatch length in list")
+	}
+
 	for e := got.Front(); e != nil; e = e.Next() {
-		fmt.Printf(e.Value.(string))
+		fmt.Printf("Entry " + e.Value.(string) + "\n")
 	}
 }

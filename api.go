@@ -23,6 +23,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"strings"
 	"time"
 )
@@ -156,77 +157,75 @@ func NewConverter(c *Config) *Tex2BibConverter {
 
 // divider take an input
 func divider(reader *bufio.Reader) (*list.List, error) {
-	line, _, err := reader.ReadLine()
+	// line, _, err := reader.ReadLine()
+	// entries := list.New()
+	// if err != nil {
+	// 	if err == io.EOF {
+	// 		return nil, errors.New("empty")
+	// 	}
+	// 	return nil, err
+	// }
+	// readLine := string(line)
 	entries := list.New()
-	if err != nil {
-		if err == io.EOF {
-			return nil, errors.New("empty")
-		}
-		return nil, err
-	}
-	readLine := string(line)
+	var line []byte
+	var readLine string
+	var err error
 
-	externalLoop := true
 	bibitemFindLoop := true
 	innerLoop := true
 
-	// now we're looping till the input ends
-	for externalLoop {
+	// FIRST LOOP: till the first \bibitem
+	for bibitemFindLoop {
 
-		// stay here until we find a new \bibitem
-		for bibitemFindLoop {
-			line, _, err = reader.ReadLine()
+		line, _, err = reader.ReadLine()
 
-			if err != nil {
-				if err == io.EOF {
-					externalLoop = false
-					bibitemFindLoop = false
-					innerLoop = false
-				} else {
-					return entries, err
-				}
+		if err != nil {
+			if err == io.EOF {
+				return nil, errors.New("empty")
 			}
-
-			readLine = string(line)
-
-			if strings.Contains(readLine, BibItem) {
-				bibitemFindLoop = false
-			}
+			return entries, err
 		}
 
-		// now looping till the next bibitem
-		var thisEntry strings.Builder
-		for innerLoop {
+		readLine = string(line)
 
-			line, _, err := reader.ReadLine()
+		if strings.Contains(readLine, BibItem) {
+			bibitemFindLoop = false
+		}
+	}
 
-			bytesRead := len(line)
-			readLine = string(line)
+	var currentEntry strings.Builder
 
-			if err != nil {
-				if err == io.EOF {
+	// SECOND LOOP: till the end of the file
+	for innerLoop {
 
-					externalLoop = false
-					bibitemFindLoop = false
-					innerLoop = false
-				} else {
-					return entries, err
-				}
-			}
+		line, _, err := reader.ReadLine()
+		readLine = string(line)
 
-			if strings.Contains(readLine, BibItem) {
-				// ok, we've arrived at the end
-				// and we can just go back
-				reader.Discard(bytesRead)
+		log.Printf("Read INNER: %s\n", readLine)
+
+		if err != nil {
+			if err == io.EOF {
 				innerLoop = false
-				bibitemFindLoop = true
+				entries.PushBack(currentEntry.String())
 			} else {
-				// if not, we've just read a new line of our bibitem
-				readLine = strings.TrimSpace(readLine)
-				thisEntry.WriteString(readLine)
+				return entries, err
 			}
 		}
-		entries.PushBack(thisEntry.String())
+
+		if strings.Contains(readLine, BibItem) {
+			// we're at the end of this bibitem
+			// we push the current item to the list
+			// and we reset the Builder for holding the next entry
+			entries.PushBack(currentEntry.String())
+			currentEntry.Reset()
+		} else {
+			// if here, it's just another line of our entry
+			// we trim spaces and we write it to the Builder
+			readLine = strings.TrimSpace(readLine)
+			if len(readLine) > 0 {
+				currentEntry.WriteString(readLine)
+			}
+		}
 	}
 	return entries, nil
 }
