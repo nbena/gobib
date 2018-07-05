@@ -51,6 +51,10 @@ var ErrBibUnclosed = errors.New("Missing \\end{thebibliography}")
 // an empty bibliography
 var ErrBibEmpty = errors.New("Empty bibliography")
 
+// ErrSyntax is an error that is returned when a generic
+// syntax error is encountered
+var ErrSyntax = errors.New("Syntax error")
+
 // BibtexEntry is an interface that defines that basic behaviour
 // of a BibtexEntry: returning a key to be used as key, and a String()
 // for encoding itself into a Bibtex format.
@@ -164,6 +168,35 @@ func NewConverter(c *Config) *Tex2BibConverter {
 	}
 }
 
+// what is returned from divider func
+type dividerResult struct {
+	// key is the bibitem key if any
+	// value is the non-parsed TeX entry
+	key, value string
+}
+
+func (d *dividerResult) String() string {
+	return fmt.Sprintf("Bib key: %s,\nValue: %s", d.key, d.value)
+}
+
+func keyFromLine(line string) (string, error) {
+	if !strings.Contains(line, BibItem) {
+		return "", ErrSyntax
+	}
+
+	endIndex := strings.LastIndex(line, "}")
+	if endIndex == -1 {
+		return "", ErrSyntax
+	}
+
+	startIndex := strings.Index(line, "{")
+	if startIndex == -1 {
+		return "", ErrSyntax
+	}
+
+	return line[startIndex+1 : endIndex], nil
+}
+
 // divider take a reader that contains a bibliography and it divides
 // it into different string, each string is a bibitem that still
 // need to be parsed.
@@ -171,15 +204,22 @@ func NewConverter(c *Config) *Tex2BibConverter {
 // output is a channel which items will be written to
 // errChan is a channel which errors will be written to
 // When an error occurs, output channel is closed
-func divider(reader *bufio.Reader, output chan<- string, errChan chan<- error) {
+func divider(reader *bufio.Reader, output chan<- dividerResult, errChan chan<- error) {
 
 	// entries := list.New()
 	var line []byte
+
+	var key string
+	// var value string
+
 	var readLine string
 	var err error
 
 	bibitemFindLoop := true
 	innerLoop := true
+
+	var currentEntry strings.Builder
+	var currentResult dividerResult
 
 	// FIRST LOOP: till the first \bibitem
 	for bibitemFindLoop {
@@ -200,10 +240,10 @@ func divider(reader *bufio.Reader, output chan<- string, errChan chan<- error) {
 
 		if strings.Contains(readLine, BibItem) {
 			bibitemFindLoop = false
+			key, _ = keyFromLine(readLine)
+			currentResult.key = key
 		}
 	}
-
-	var currentEntry strings.Builder
 
 	// SECOND LOOP: till the end of the file
 	for innerLoop {
@@ -221,7 +261,9 @@ func divider(reader *bufio.Reader, output chan<- string, errChan chan<- error) {
 			errChan <- err
 			innerLoop = false
 			// entries.PushBack(currentEntry.String())
-			output <- currentEntry.String()
+			currentResult.value = currentEntry.String()
+			// output <- currentEntry.String()
+			output <- currentResult
 			close(output)
 		}
 
@@ -230,13 +272,21 @@ func divider(reader *bufio.Reader, output chan<- string, errChan chan<- error) {
 			// we push the current item to the list
 			// and we reset the Builder for holding the next entry
 			// entries.PushBack(currentEntry.String())
-			output <- currentEntry.String()
+			currentResult.value = currentEntry.String()
+			// output <- currentEntry.String()
+			output <- currentResult
 			currentEntry.Reset()
+
+			// now reading the key
+			key, _ = keyFromLine(readLine)
+			currentResult.key = key
 		} else if strings.Contains(readLine, EndBibliography) {
 			// the bibliography is finished
 			innerLoop = false
 			// entries.PushBack(currentEntry.String())
-			output <- currentEntry.String()
+			currentResult.value = currentEntry.String()
+			// output <- currentEntry.String()
+			output <- currentResult
 		} else {
 			// if here, it's just another line of our entry
 			// we trim spaces and we write it to the Builder
@@ -246,4 +296,10 @@ func divider(reader *bufio.Reader, output chan<- string, errChan chan<- error) {
 			}
 		}
 	}
+}
+
+// tokenizer takes an input chan in which \bibitem are
+// and converts them to a BibTextEntry.
+func tokenizer(input <-chan string, output chan<- BibtexEntry) {
+
 }

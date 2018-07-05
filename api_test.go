@@ -50,14 +50,14 @@ type converterTest struct {
 	Converter *Tex2BibConverter
 }
 
-func (c *converterTest) gotExpected(got, expected string, checkSimilar bool, t *testing.T) {
+func gotExpected(got, expected string, checkSimilar bool, t *testing.T) {
 	ok := false
 	if checkSimilar {
 		if strings.Contains(got, expected) || strings.Contains(expected, got) {
 			ok = true
 		}
 	}
-	if expected != got {
+	if expected == got {
 		ok = true
 	}
 	if !ok {
@@ -70,11 +70,15 @@ func initConverter(c *Config) *converterTest {
 	return &converterTest{converter}
 }
 
-func (c *converterTest) runDivider() (chan string, chan error) {
-	output := make(chan string, 2)
+func (c *converterTest) runDivider() (chan dividerResult, chan error) {
+	output := make(chan dividerResult, 2)
 	errChan := make(chan error, 2)
 	go divider(c.Converter.reader, output, errChan)
 	return output, errChan
+}
+
+func runKeyFromLine(line string) (string, error) {
+	return keyFromLine(line)
 }
 
 func TestDividerOk(t *testing.T) {
@@ -90,11 +94,12 @@ func TestDividerOk(t *testing.T) {
 	loop := true
 	for loop {
 		select {
-		case <-output:
+		case entry := <-output:
 			entriesLen++
 			if entriesLen == expectedLen {
 				loop = false
 			}
+			t.Logf(entry.String())
 		case err = <-errChan:
 			loop = false
 		}
@@ -139,4 +144,16 @@ func TestEmptyDivider(t *testing.T) {
 	} else if err != ErrBibEmpty {
 		t.Fatalf("err != ErrBibEmpty" + err.Error())
 	}
+}
+
+func TestKeyFromLine(t *testing.T) {
+
+	line := "\\bibitem{item}"
+	expected := "item"
+	key, err := runKeyFromLine(line)
+	if err != nil {
+		t.Fatalf("Err find key: %s", err.Error())
+	}
+
+	gotExpected(key, expected, false, t)
 }
