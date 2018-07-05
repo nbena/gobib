@@ -59,7 +59,7 @@ var ErrSyntax = errors.New("Syntax error")
 // of a BibtexEntry: returning a key to be used as key, and a String()
 // for encoding itself into a Bibtex format.
 type BibtexEntry interface {
-	Key() string
+	GenKey() string
 
 	// String returns the BibTeX entry.
 	String() string
@@ -72,6 +72,7 @@ type BibtexEntry interface {
 // BasicBibtexEntry is a struct that wraps the basic info
 // about an entry.
 type BasicBibtexEntry struct {
+	Key     string
 	Authors []string
 	Title   string
 	Year    int
@@ -90,9 +91,11 @@ type OnlineEntry struct {
 	Visited *time.Time
 }
 
-// Key returns a key to be used as the first argument of a Bibtex entry.
-func (b *BasicBibtexEntry) Key() string {
-	return fmt.Sprintf("%s-%d-%s", b.Title, b.Year, b.Authors[0])
+// GenKey generates, sets, returns a new key for this entry.
+func (b *BasicBibtexEntry) GenKey() string {
+	key := fmt.Sprintf("%s-%d-%s", b.Title, b.Year, b.Authors[0])
+	b.Key = key
+	return key
 }
 
 // AuthorsToString returns a Bibtex-authors string, by joining the authors
@@ -111,7 +114,7 @@ func (b *BasicBibtexEntry) unclosedToString() string {
 		"\ttitle = \"%s\", \n"+
 		"\tauthors = \"%s\",\n"+
 		"\tyear = \"%d\"\n",
-		b.Key(),
+		b.Key,
 		b.AuthorsToString(),
 		b.Title,
 		b.Year,
@@ -260,9 +263,7 @@ func divider(reader *bufio.Reader, output chan<- dividerResult, errChan chan<- e
 			}
 			errChan <- err
 			innerLoop = false
-			// entries.PushBack(currentEntry.String())
 			currentResult.value = currentEntry.String()
-			// output <- currentEntry.String()
 			output <- currentResult
 			close(output)
 		}
@@ -271,9 +272,7 @@ func divider(reader *bufio.Reader, output chan<- dividerResult, errChan chan<- e
 			// we're at the end of this bibitem
 			// we push the current item to the list
 			// and we reset the Builder for holding the next entry
-			// entries.PushBack(currentEntry.String())
 			currentResult.value = currentEntry.String()
-			// output <- currentEntry.String()
 			output <- currentResult
 			currentEntry.Reset()
 
@@ -283,9 +282,7 @@ func divider(reader *bufio.Reader, output chan<- dividerResult, errChan chan<- e
 		} else if strings.Contains(readLine, EndBibliography) {
 			// the bibliography is finished
 			innerLoop = false
-			// entries.PushBack(currentEntry.String())
 			currentResult.value = currentEntry.String()
-			// output <- currentEntry.String()
 			output <- currentResult
 		} else {
 			// if here, it's just another line of our entry
@@ -298,8 +295,15 @@ func divider(reader *bufio.Reader, output chan<- dividerResult, errChan chan<- e
 	}
 }
 
-// tokenizer takes an input chan in which \bibitem are
+// parser takes an input chan in which \bibitem are
 // and converts them to a BibTextEntry.
-func tokenizer(input <-chan string, output chan<- BibtexEntry) {
+func parser(input <-chan dividerResult, output chan<- BibtexEntry) {
+	for item := range input {
 
+		entry := &OnlineEntry{}
+		entry.Key = item.key
+
+		//TODO add the real parser :)
+		output <- entry
+	}
 }
