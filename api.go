@@ -182,7 +182,7 @@ func (d *dividerResult) String() string {
 	return fmt.Sprintf("Bib key: %s,\nValue: %s", d.key, d.value)
 }
 
-func keyFromLine(line string) (string, error) {
+func extractKey(line string) (string, error) {
 	if !strings.Contains(line, BibItem) {
 		return "", ErrSyntax
 	}
@@ -198,6 +198,30 @@ func keyFromLine(line string) (string, error) {
 	}
 
 	return line[startIndex+1 : endIndex], nil
+}
+
+// extractURL extract the URL, if any, from a plain TeX
+// bib entry, by lookig for the \url command.
+// If this is not found, an empty URL is returned.
+func extractURL(line string) string {
+	url := ""
+	startIndex := strings.LastIndex(line, "\\url{")
+	if startIndex == -1 {
+		return url
+	}
+
+	// now we walk the string from startIndex till the
+	// first '}'
+	// +5 because we jump to what is after '\url{'
+	for i := startIndex + 5; i < len(line); i++ {
+		if line[i] != '}' {
+			url += string(line[i])
+		} else {
+			// exit
+			i = len(line)
+		}
+	}
+	return url
 }
 
 // divider take a reader that contains a bibliography and it divides
@@ -243,7 +267,7 @@ func divider(reader *bufio.Reader, output chan<- dividerResult, errChan chan<- e
 
 		if strings.Contains(readLine, BibItem) {
 			bibitemFindLoop = false
-			key, _ = keyFromLine(readLine)
+			key, _ = extractKey(readLine)
 			currentResult.key = key
 		}
 	}
@@ -277,7 +301,7 @@ func divider(reader *bufio.Reader, output chan<- dividerResult, errChan chan<- e
 			currentEntry.Reset()
 
 			// now reading the key
-			key, _ = keyFromLine(readLine)
+			key, _ = extractKey(readLine)
 			currentResult.key = key
 		} else if strings.Contains(readLine, EndBibliography) {
 			// the bibliography is finished

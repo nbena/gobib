@@ -24,10 +24,10 @@ import (
 
 const correctBibliography = `
 \begin{thebibliography}
-	\bibitem{}
+	\bibitem{wcf}
 	Ross Anderson, Why Cryptosystems Fail
 
-	\bibitem{}
+	\bibitem{wcdf}
 	Ross Anderson, Why Cryptosystems Don't Fail
 \end{thebibliography}
 `
@@ -78,7 +78,12 @@ func (c *converterTest) runDivider() (chan dividerResult, chan error) {
 }
 
 func runKeyFromLine(line string) (string, error) {
-	return keyFromLine(line)
+	return extractKey(line)
+}
+
+func runExtractURL(line string) string {
+	return extractURL(line)
+
 }
 
 func TestDividerOk(t *testing.T) {
@@ -156,4 +161,19 @@ func TestKeyFromLine(t *testing.T) {
 	}
 
 	gotExpected(key, expected, false, t)
+}
+
+func TestExtractURL(t *testing.T) {
+	line := "hello, \\url{example.com/golang}, hey"
+	expected := "example.com/golang"
+	got := runExtractURL(line)
+
+	gotExpected(got, expected, false, t)
+}
+
+func TestExtractEmptyURL(t *testing.T) {
+	line := "\\bibitem{item}\n hello world"
+	expected := ""
+	got := runExtractURL(line)
+	gotExpected(got, expected, false, t)
 }
