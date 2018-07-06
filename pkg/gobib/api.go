@@ -88,6 +88,22 @@ type AdvancedOnlineBibtexEntry struct {
 	Visited *time.Time
 }
 
+// NewBasicEntry returns a new BasicOnlineBibtexEntry.
+func NewBasicEntry(key string, authors []string, title string, year int, URL string) *BasicOnlineBibtexEntry {
+	entry := &BasicOnlineBibtexEntry{
+		Key:     key,
+		Authors: authors,
+		Title:   title,
+		Year:    year,
+		URL:     URL,
+	}
+
+	if entry.Key == "" {
+		entry.Key = entry.GenKey()
+	}
+	return entry
+}
+
 // GenKey generates, sets, returns a new key for this entry.
 func (b *BasicOnlineBibtexEntry) GenKey() string {
 	key := fmt.Sprintf("%s-%d-%s", b.Title, b.Year, b.Authors[0])
@@ -107,28 +123,32 @@ func (b *BasicOnlineBibtexEntry) String() string {
 }
 
 func (b *BasicOnlineBibtexEntry) unclosedToString() string {
-	result := fmt.Sprintf("@online{%s\n"+
-		"\ttitle = \"%s\", \n"+
-		"\tauthors = \"%s\",\n"+
-		"\tyear = \"%d\"\n",
+	result := fmt.Sprintf("@online{%s,\n"+
+		"\tauthor = \"%s\",\n"+
+		"\ttitle = \"%s\",\n"+
+		"\tyear = \"%d\",\n",
 		b.Key,
-		b.Title,
 		b.AuthorsToString(),
+		b.Title,
 		b.Year,
 	)
 	if b.URL != "" {
-		result += "\turl = \"" + b.URL + "\"\n"
+		result += "\turl = \"" + b.URL + "\",\n"
+	}
+	return result
+}
+
+func (b *AdvancedOnlineBibtexEntry) unclosedToString() string {
+	result := b.BasicOnlineBibtexEntry.unclosedToString()
+	if b.Visited != nil {
+		year, month, day := b.Visited.Date()
+		result += fmt.Sprintf("\turldate = \"%d-%d-%d\",\n", year, month, day)
 	}
 	return result
 }
 
 func (b *AdvancedOnlineBibtexEntry) String() string {
-	returned := b.BasicOnlineBibtexEntry.unclosedToString()
-	if b.Visited != nil {
-		year, month, day := b.Visited.Date()
-		returned += fmt.Sprintf("%d-%d-%d", year, month, day)
-	}
-	return returned
+	return b.unclosedToString() + "}"
 }
 
 // Config is the configuration for the converter
@@ -352,6 +372,8 @@ func (c *Tex2BibConverter) parser() {
 		var entryYear int
 		var entryVisited *time.Time
 
+		entryVisited = c.config.DefaultVisited
+
 		tokens := strings.Split(item.value, ",")
 
 		// trying to extract the URL and set it
@@ -417,9 +439,9 @@ func (c *Tex2BibConverter) parser() {
 			entryYear = c.config.DefaultYear
 		}
 
-		entry := &BasicOnlineBibtexEntry{}
+		entry := &AdvancedOnlineBibtexEntry{}
+
 		if entryVisited != nil {
-			entry := &AdvancedOnlineBibtexEntry{}
 			entry.Visited = entryVisited
 		}
 
@@ -458,7 +480,7 @@ func (c *Tex2BibConverter) Convert() {
 // in c.ErrChan()
 func (c *Tex2BibConverter) writer() {
 	for bibEntry := range c.stage2OutChannel {
-		_, err := c.config.Output.Write([]byte(bibEntry.String()))
+		_, err := c.config.Output.Write([]byte(bibEntry.String() + "\n\n"))
 		if err != nil {
 			c.errorChannel <- err
 		}

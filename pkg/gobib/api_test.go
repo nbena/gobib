@@ -20,6 +20,7 @@ package gobib
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 const correctBibliography = `
@@ -46,26 +47,77 @@ const extendedBibliography = `
 \end{thebibliography}
 `
 
-var extendedBibliographyResult = []BasicOnlineBibtexEntry{
-	BasicOnlineBibtexEntry{
-		Title:   "Why Cryptosystems Fail",
-		Authors: []string{"Ross Anderson"},
-		Year:    1909,
-		URL:     "example.com/ra/wcf.pdf",
-		Key:     "wcf",
+var extendedBibliographyResult = []AdvancedOnlineBibtexEntry{
+	AdvancedOnlineBibtexEntry{
+		BasicOnlineBibtexEntry: BasicOnlineBibtexEntry{
+			Title:   "Why Cryptosystems Fail",
+			Authors: []string{"Ross Anderson"},
+			Year:    1909,
+			URL:     "example.com/ra/wcf.pdf",
+			Key:     "wcf",
+		},
 	},
-	BasicOnlineBibtexEntry{
-		Title:   "Why Cryptosystems Don't Fail",
-		Authors: []string{"Ross Anderson"},
-		Key:     "wcdf",
+	AdvancedOnlineBibtexEntry{
+		BasicOnlineBibtexEntry: BasicOnlineBibtexEntry{
+			Title:   "Why Cryptosystems Don't Fail",
+			Authors: []string{"Ross Anderson"},
+			Key:     "wcdf",
+		},
 	},
-	BasicOnlineBibtexEntry{
-		Title:   "Someone Somewhere",
-		Authors: []string{"Asking Alexandria"},
-		Year:    2011,
-		Key:     "aass",
+	AdvancedOnlineBibtexEntry{
+		BasicOnlineBibtexEntry: BasicOnlineBibtexEntry{
+			Title:   "Someone Somewhere",
+			Authors: []string{"Asking Alexandria"},
+			Year:    2011,
+			Key:     "aass",
+		},
 	},
 }
+
+const expectedExtendedBib = `@online{wcf,
+	author = "Ross Anderson",
+	title = "Why Cryptosystems Fail",
+	year = "1909",
+	url = "example.com/ra/wcf.pdf",
+}
+
+@online{wcdf,
+	author = "Ross Anderson",
+	title = "Why Cryptosystems Don't Fail",
+	year = "2010",
+}
+
+@online{aass,
+	author = "Asking Alexandria",
+	title = "Someone Somewhere",
+	year = "2011",
+}
+
+`
+
+const expectedExtendedBibWithVisited = `@online{wcf,
+	author = "Ross Anderson",
+	title = "Why Cryptosystems Fail",
+	year = "1909",
+	url = "example.com/ra/wcf.pdf",
+	urldate = "2018-7-6",
+}
+
+@online{wcdf,
+	author = "Ross Anderson",
+	title = "Why Cryptosystems Don't Fail",
+	year = "2010",
+	urldate = "2018-7-6",
+}
+
+@online{aass,
+	author = "Asking Alexandria",
+	title = "Someone Somewhere",
+	year = "2011",
+	urldate = "2018-7-6",
+}
+
+`
 
 const wrongBibliography = `
 \begin{thebibliography}
@@ -89,7 +141,7 @@ func BibtexEntryEqual(entry1, entry2 *BasicOnlineBibtexEntry) bool {
 	return entry1.Key == entry2.Key
 }
 
-func ExtendedBibtexEntryEqual(entry1, entry2 *BasicOnlineBibtexEntry) bool {
+func ExtendedBibtexEntryEqual(entry1, entry2 BasicOnlineBibtexEntry) bool {
 	if entry1.Key != entry2.Key {
 		return false
 	}
@@ -249,7 +301,10 @@ func TestParser(t *testing.T) {
 		DefaultYear: 1900,
 	}
 	converter := initConverter(config)
-	converter.convert()
+	// converter.convert()
+
+	go converter.Converter.parser()
+	go converter.Converter.divider()
 
 	i := 0
 
@@ -264,12 +319,34 @@ func TestParser(t *testing.T) {
 				loop = false
 			} else {
 				t.Logf(bibEntry.String())
-				if !ExtendedBibtexEntryEqual(bibEntry.(*BasicOnlineBibtexEntry), &extendedBibliographyResult[i]) {
+				if !ExtendedBibtexEntryEqual(bibEntry.(*AdvancedOnlineBibtexEntry).BasicOnlineBibtexEntry,
+					extendedBibliographyResult[i].BasicOnlineBibtexEntry) {
 					t.Errorf("Fail to check: %s %s", bibEntry.String(), extendedBibliographyResult[i].String())
 				}
 				i++
 			}
 		}
+	}
+}
+
+func runTestComplete(c *Config, expectedOutput string, t *testing.T) {
+	// var writer strings.Builder
+	converter := initConverter(c)
+	writer := c.Output.(*strings.Builder)
+	converter.Converter.Convert()
+
+	var result string
+	ok, err := converter.Converter.OkChan(), converter.Converter.ErrChan()
+	select {
+	case <-err:
+		t.Errorf("Fail to convert")
+	case <-ok:
+		result = writer.String()
+		t.Logf("Result of conversion:\n%s", result)
+	}
+
+	if result != expectedOutput {
+		t.Errorf("Difference!, expected:\n%s", expectedOutput)
 	}
 }
 
@@ -281,5 +358,17 @@ func TestCompleteEmptyVisit(t *testing.T) {
 		DefaultYear: 2010,
 	}
 
-	initConverter(config)
+	runTestComplete(config, expectedExtendedBib, t)
+}
+
+func TestCompleteWithVisit(t *testing.T) {
+	var writer strings.Builder
+	defaultTime, _ := time.Parse("2006-01-02", "2018-07-06")
+	config := &Config{
+		Output:         &writer,
+		Input:          strings.NewReader(extendedBibliography),
+		DefaultYear:    2010,
+		DefaultVisited: &defaultTime,
+	}
+	runTestComplete(config, expectedExtendedBibWithVisited, t)
 }
