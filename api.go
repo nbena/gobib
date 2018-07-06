@@ -22,7 +22,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"strings"
 	"time"
 )
@@ -152,6 +151,7 @@ type Tex2BibConverter struct {
 	stage1OutChannel chan dividerResult
 	stage2OutChannel chan BibtexEntry
 	errorChannel     chan error
+	okChannel        chan struct{}
 }
 
 // NewConverter returns a new converter to convert a plain TeX
@@ -165,7 +165,20 @@ func NewConverter(c *Config) *Tex2BibConverter {
 		stage1OutChannel: make(chan dividerResult, 10),
 		stage2OutChannel: make(chan BibtexEntry, 10),
 		errorChannel:     make(chan error),
+		okChannel:        make(chan struct{}, 1),
 	}
+}
+
+// ErrChan returns the used error channel as a receive-only channel.
+func (c *Tex2BibConverter) ErrChan() <-chan error {
+	return c.errorChannel
+}
+
+// OkChan returns the channel used to notify that the conversion
+// is finished. You should wait for a single receive over this channel.
+// It is a 1-buffered channel.
+func (c *Tex2BibConverter) OkChan() <-chan struct{} {
+	return c.okChannel
 }
 
 // what is returned from divider func
@@ -237,7 +250,7 @@ func extractYear(line string) int {
 // output is a channel which items will be written to
 // errChan is a channel which errors will be written to
 // When an error occurs, output channel is closed
-func divider(reader *bufio.Reader, output chan<- dividerResult, errChan chan<- error) {
+func (c *Tex2BibConverter) divider() {
 
 	// entries := list.New()
 	var line []byte
@@ -257,7 +270,7 @@ func divider(reader *bufio.Reader, output chan<- dividerResult, errChan chan<- e
 	// FIRST LOOP: till the first \bibitem
 	for bibitemFindLoop {
 
-		line, _, err = reader.ReadLine()
+		line, _, err = c.reader.ReadLine()
 
 		if err != nil {
 			if err == io.EOF {
@@ -265,8 +278,8 @@ func divider(reader *bufio.Reader, output chan<- dividerResult, errChan chan<- e
 			}
 			innerLoop = false
 			bibitemFindLoop = false
-			errChan <- err
-			close(output)
+			c.errorChannel <- err
+			close(c.stage1OutChannel)
 		}
 
 		readLine = string(line)
@@ -281,7 +294,7 @@ func divider(reader *bufio.Reader, output chan<- dividerResult, errChan chan<- e
 	// SECOND LOOP: till the end of the file
 	for innerLoop {
 
-		line, _, err = reader.ReadLine()
+		line, _, err = c.reader.ReadLine()
 		readLine = string(line)
 
 		if err != nil {
@@ -291,11 +304,11 @@ func divider(reader *bufio.Reader, output chan<- dividerResult, errChan chan<- e
 			if err == io.EOF {
 				err = ErrBibUnclosed
 			}
-			errChan <- err
+			c.errorChannel <- err
 			innerLoop = false
 			currentResult.value = currentEntry.String()
-			output <- currentResult
-			close(output)
+			c.stage1OutChannel <- currentResult
+			close(c.stage1OutChannel)
 		}
 
 		if strings.Contains(readLine, BibItem) {
@@ -303,7 +316,7 @@ func divider(reader *bufio.Reader, output chan<- dividerResult, errChan chan<- e
 			// we push the current item to the list
 			// and we reset the Builder for holding the next entry
 			currentResult.value = currentEntry.String()
-			output <- currentResult
+			c.stage1OutChannel <- currentResult
 			currentEntry.Reset()
 
 			// now reading the key
@@ -313,8 +326,8 @@ func divider(reader *bufio.Reader, output chan<- dividerResult, errChan chan<- e
 			// the bibliography is finished
 			innerLoop = false
 			currentResult.value = currentEntry.String()
-			output <- currentResult
-			close(output)
+			c.stage1OutChannel <- currentResult
+			close(c.stage1OutChannel)
 		} else {
 			// if here, it's just another line of our entry
 			// we trim spaces and we write it to the Builder
@@ -332,7 +345,6 @@ func (c *Tex2BibConverter) parser() {
 	for item := range c.stage1OutChannel {
 
 		// entry := &BasicOnlineBibtexEntry{}
-		log.Printf(item.value)
 
 		var entryURL string
 		var entryAuthors []string
@@ -431,8 +443,26 @@ func (c *Tex2BibConverter) parser() {
 }
 
 // Convert starts the conversion into different goroutines and
-// prints result to c.Output (last stage yet to be done)
+// prints result to c.config.Writer.
+// When it's finished, it send an empty struct on c.OkChan().
+// Any error will be sent to c.ErrChan() and will cause the
+/// conversion to immediately finish.
 func (c *Tex2BibConverter) Convert() {
+	go c.writer()
 	go c.parser()
-	go divider(c.reader, c.stage1OutChannel, c.errorChannel)
+	go c.divider()
+}
+
+// writer takes input from stage2OutChannel and writes
+// to the internal writer. Errors are returned
+// in c.ErrChan()
+func (c *Tex2BibConverter) writer() {
+	for bibEntry := range c.stage2OutChannel {
+		_, err := c.config.Output.Write([]byte(bibEntry.String()))
+		if err != nil {
+			c.errorChannel <- err
+		}
+	}
+	// when finished, just sending the ok value.
+	c.okChannel <- struct{}{}
 }

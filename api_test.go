@@ -139,11 +139,8 @@ func (t *converterTest) convert() {
 	t.Converter.Convert()
 }
 
-func (t *converterTest) runDivider() (chan dividerResult, chan error) {
-	output := make(chan dividerResult, 2)
-	errChan := make(chan error, 2)
-	go divider(t.Converter.reader, output, errChan)
-	return output, errChan
+func (t *converterTest) runDivider() {
+	go t.Converter.divider()
 }
 
 func runKeyFromLine(line string) (string, error) {
@@ -161,19 +158,19 @@ func TestDividerOk(t *testing.T) {
 	})
 
 	expectedLen := 2
-	output, errChan := converter.runDivider()
+	converter.runDivider()
 	var entriesLen int
 	var err error
 	loop := true
 	for loop {
 		select {
-		case entry := <-output:
+		case entry := <-converter.Converter.stage1OutChannel:
 			entriesLen++
 			if entriesLen == expectedLen {
 				loop = false
 			}
 			t.Logf(entry.String())
-		case err = <-errChan:
+		case err = <-converter.Converter.errorChannel:
 			loop = false
 		}
 	}
@@ -195,8 +192,8 @@ func TestDividerNoEnd(t *testing.T) {
 		Output: &bibliographyWriter,
 	})
 
-	_, errChan := converter.runDivider()
-	err := <-errChan
+	converter.runDivider()
+	err := <-converter.Converter.errorChannel
 	if err == nil {
 		t.Fatalf("error is nil")
 	} else if err != ErrBibUnclosed {
@@ -210,8 +207,8 @@ func TestEmptyDivider(t *testing.T) {
 		Output: &bibliographyWriter,
 	})
 
-	_, errChan := converter.runDivider()
-	err := <-errChan
+	converter.runDivider()
+	err := <-converter.Converter.errorChannel
 	if err == nil {
 		t.Fatalf("error is nil")
 	} else if err != ErrBibEmpty {
@@ -274,5 +271,15 @@ func TestParser(t *testing.T) {
 			}
 		}
 	}
+}
 
+func TestCompleteEmptyVisit(t *testing.T) {
+	var writer strings.Builder
+	config := &Config{
+		Output:      &writer,
+		Input:       strings.NewReader(extendedBibliography),
+		DefaultYear: 2010,
+	}
+
+	initConverter(config)
 }
