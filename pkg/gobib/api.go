@@ -26,17 +26,6 @@ import (
 	"time"
 )
 
-// BibtexEntry is an interface that defines what an entry should
-// expose
-// type BibtexEntry interface {
-// 	Authors() []string
-// 	Title() string
-// 	URL() string
-// 	Year() int
-
-// 	String() string
-// }
-
 // BibItem is the constant that represents '\bibitem'
 const BibItem = "\\bibitem{"
 
@@ -57,6 +46,14 @@ var ErrBibEmpty = errors.New("Empty bibliography")
 // ErrSyntax is an error that is returned when a generic
 // syntax error is encountered
 var ErrSyntax = errors.New("Syntax error")
+
+// NoDefaultYear should be used when you create a new Config,
+// for saying to not add a default year when a year is not found
+const NoDefaultYear = 0
+
+// NoDefaultURLDate should be used when you create a new Config,
+// for saying to not add a default 'urldate'
+var NoDefaultURLDate *time.Time
 
 // BibtexEntry is an interface that defines that basic behaviour
 // of a BibtexEntry: returning a key to be used as key, and a String()
@@ -89,7 +86,9 @@ type AdvancedOnlineBibtexEntry struct {
 }
 
 // NewBasicEntry returns a new BasicOnlineBibtexEntry.
-func NewBasicEntry(key string, authors []string, title string, year int, URL string) *BasicOnlineBibtexEntry {
+// If the key is empty, a new key is generated.
+func NewBasicEntry(key string, authors []string, title string,
+	year int, URL string) *BasicOnlineBibtexEntry {
 	entry := &BasicOnlineBibtexEntry{
 		Key:     key,
 		Authors: authors,
@@ -102,6 +101,18 @@ func NewBasicEntry(key string, authors []string, title string, year int, URL str
 		entry.Key = entry.GenKey()
 	}
 	return entry
+}
+
+// NewAdvancedEntry returns a new AdvancedOnlineBibtexEntry.
+// If the key is empty, a new key is generated.
+func NewAdvancedEntry(key string, authors []string, title string,
+	year int, URL string, visited *time.Time) *AdvancedOnlineBibtexEntry {
+
+	basicEntry := NewBasicEntry(key, authors, title, year, URL)
+	return &AdvancedOnlineBibtexEntry{
+		BasicOnlineBibtexEntry: *basicEntry,
+		Visited:                visited,
+	}
 }
 
 // GenKey generates, sets, returns a new key for this entry.

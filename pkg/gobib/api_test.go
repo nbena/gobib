@@ -131,7 +131,6 @@ const wrongBibliography = `
 var bibliographyReader = strings.NewReader(correctBibliography)
 var wrongBibliographyReader = strings.NewReader(wrongBibliography)
 var emptyBibliographyReader = strings.NewReader("")
-var bibliographyWriter strings.Builder
 
 type converterTest struct {
 	Converter *Tex2BibConverter
@@ -187,10 +186,6 @@ func initConverter(c *Config) *converterTest {
 	return &converterTest{converter}
 }
 
-func (t *converterTest) convert() {
-	t.Converter.Convert()
-}
-
 func (t *converterTest) runDivider() {
 	go t.Converter.divider()
 }
@@ -204,9 +199,10 @@ func runExtractURL(line string) string {
 }
 
 func TestDividerOk(t *testing.T) {
+	var writer strings.Builder
 	converter := initConverter(&Config{
 		Input:  bibliographyReader,
-		Output: &bibliographyWriter,
+		Output: &writer,
 	})
 
 	expectedLen := 2
@@ -239,9 +235,10 @@ func TestDividerOk(t *testing.T) {
 }
 
 func TestDividerNoEnd(t *testing.T) {
+	var writer strings.Builder
 	converter := initConverter(&Config{
 		Input:  wrongBibliographyReader,
-		Output: &bibliographyWriter,
+		Output: &writer,
 	})
 
 	converter.runDivider()
@@ -254,9 +251,10 @@ func TestDividerNoEnd(t *testing.T) {
 }
 
 func TestEmptyDivider(t *testing.T) {
+	var writer strings.Builder
 	converter := initConverter(&Config{
 		Input:  wrongBibliographyReader,
-		Output: &bibliographyWriter,
+		Output: &writer,
 	})
 
 	converter.runDivider()
@@ -371,4 +369,17 @@ func TestCompleteWithVisit(t *testing.T) {
 		DefaultVisited: &defaultTime,
 	}
 	runTestComplete(config, expectedExtendedBibWithVisited, t)
+}
+
+func TestNewBasic(t *testing.T) {
+	NewBasicEntry("key", []string{"author0"}, "title", 2018, "")
+}
+
+func TestNewAdvancedWithKey(t *testing.T) {
+	entry := NewAdvancedEntry("", []string{"foo"}, "bar", 2018, "", nil)
+	expected := "bar-2018-foo"
+	got := entry.Key
+	if expected != got {
+		t.Errorf("Fail to test GenKey(), expected: %s, got: %s", expected, got)
+	}
 }
