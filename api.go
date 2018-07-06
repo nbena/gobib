@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"strings"
 	"time"
 )
@@ -42,6 +43,9 @@ const BibItem = "\\bibitem{"
 
 // EndBibliography is the constant: '\end{thebibliography}'
 const EndBibliography = "\\end{thebibliography}"
+
+// URLToken is the constanr: '\url{'
+const URLToken = "\\url{"
 
 // ErrBibUnclosed is an error that is returned when reading from the
 // bib file and EOF is reached without seeing \end{thebibliography}
@@ -69,30 +73,24 @@ type BibtexEntry interface {
 	unclosedToString() string
 }
 
-// BasicBibtexEntry is a struct that wraps the basic info
-// about an entry.
-type BasicBibtexEntry struct {
+// BasicOnlineBibtexEntry is a struct that wraps the basic info
+// about an entry. It is a 'base struct'
+type BasicOnlineBibtexEntry struct {
 	Key     string
 	Authors []string
 	Title   string
 	Year    int
+	URL     string
 }
 
-// URLBibtexEntry is a struct that extends BasicBibtexEntry adding
-// an URL.
-type URLBibtexEntry struct {
-	BasicBibtexEntry
-	URL string
-}
-
-// OnlineEntry represents an entry with the 'urldate' field
-type OnlineEntry struct {
-	URLBibtexEntry
+// AdvancedOnlineBibtexEntry represents an entry with the 'urldate' field
+type AdvancedOnlineBibtexEntry struct {
+	BasicOnlineBibtexEntry
 	Visited *time.Time
 }
 
 // GenKey generates, sets, returns a new key for this entry.
-func (b *BasicBibtexEntry) GenKey() string {
+func (b *BasicOnlineBibtexEntry) GenKey() string {
 	key := fmt.Sprintf("%s-%d-%s", b.Title, b.Year, b.Authors[0])
 	b.Key = key
 	return key
@@ -100,41 +98,37 @@ func (b *BasicBibtexEntry) GenKey() string {
 
 // AuthorsToString returns a Bibtex-authors string, by joining the authors
 // using 'and' keyword.
-func (b *BasicBibtexEntry) AuthorsToString() string {
+func (b *BasicOnlineBibtexEntry) AuthorsToString() string {
 	return strings.Join(b.Authors, " and ")
 }
 
 // String returns a Bibtex-representation of the entry.
-func (b *BasicBibtexEntry) String() string {
+func (b *BasicOnlineBibtexEntry) String() string {
 	return b.unclosedToString() + "}"
 }
 
-func (b *BasicBibtexEntry) unclosedToString() string {
-	return fmt.Sprintf("@article{%s\n"+
+func (b *BasicOnlineBibtexEntry) unclosedToString() string {
+	result := fmt.Sprintf("@online{%s\n"+
 		"\ttitle = \"%s\", \n"+
 		"\tauthors = \"%s\",\n"+
 		"\tyear = \"%d\"\n",
 		b.Key,
-		b.AuthorsToString(),
 		b.Title,
+		b.AuthorsToString(),
 		b.Year,
 	)
+	if b.URL != "" {
+		result += "\turl = \"" + b.URL + "\"\n"
+	}
+	return result
 }
 
-func (b *URLBibtexEntry) unclosedToString() string {
-	returned := b.BasicBibtexEntry.unclosedToString()
-	returned += "\"" + b.URL + "\"\n}"
-	return returned
-}
-
-func (b *URLBibtexEntry) String() string {
-	return b.unclosedToString()
-}
-
-func (b *OnlineEntry) String() string {
-	returned := b.URLBibtexEntry.unclosedToString()
-	year, month, day := b.Visited.Date()
-	returned += fmt.Sprintf("%d-%d-%d", year, month, day)
+func (b *AdvancedOnlineBibtexEntry) String() string {
+	returned := b.BasicOnlineBibtexEntry.unclosedToString()
+	if b.Visited != nil {
+		year, month, day := b.Visited.Date()
+		returned += fmt.Sprintf("%d-%d-%d", year, month, day)
+	}
 	return returned
 }
 
@@ -147,27 +141,30 @@ type Config struct {
 	// DefaultYear is the year to use if not present.
 	DefaultYear int
 	// DefaultVisited is the default 'urldate' value to use
+	// if it's nil it won't be set
 	DefaultVisited *time.Time
 }
 
 // Tex2BibConverter is the converter from plain TeX to BibTeX.
 type Tex2BibConverter struct {
-	reader        *bufio.Reader
-	config        *Config
-	stage1Channel chan []byte
-	stage2Channel chan BibtexEntry
-	errorChannel  chan error
+	reader           *bufio.Reader
+	config           *Config
+	stage1OutChannel chan dividerResult
+	stage2OutChannel chan BibtexEntry
+	errorChannel     chan error
 }
 
 // NewConverter returns a new converter to convert a plain TeX
 // bibliography into a BibTeX one.
 func NewConverter(c *Config) *Tex2BibConverter {
 	return &Tex2BibConverter{
-		reader:        bufio.NewReader(c.Input),
-		config:        c,
-		stage1Channel: make(chan []byte, 10),
-		stage2Channel: make(chan BibtexEntry, 10),
-		errorChannel:  make(chan error),
+		reader: bufio.NewReader(c.Input),
+		config: c,
+		//  stage1Channel: make(chan []byte, 10),
+		// stage2Channel: make(chan BibtexEntry, 10),
+		stage1OutChannel: make(chan dividerResult, 10),
+		stage2OutChannel: make(chan BibtexEntry, 10),
+		errorChannel:     make(chan error),
 	}
 }
 
@@ -222,6 +219,15 @@ func extractURL(line string) string {
 		}
 	}
 	return url
+}
+
+func extractYear(line string) int {
+	year := 0
+	fmt.Sscanf(line, "%4d", &year)
+	if !(year != 0 && len(line) <= 6) {
+		year = 0
+	}
+	return year
 }
 
 // divider take a reader that contains a bibliography and it divides
@@ -308,6 +314,7 @@ func divider(reader *bufio.Reader, output chan<- dividerResult, errChan chan<- e
 			innerLoop = false
 			currentResult.value = currentEntry.String()
 			output <- currentResult
+			close(output)
 		} else {
 			// if here, it's just another line of our entry
 			// we trim spaces and we write it to the Builder
@@ -321,13 +328,111 @@ func divider(reader *bufio.Reader, output chan<- dividerResult, errChan chan<- e
 
 // parser takes an input chan in which \bibitem are
 // and converts them to a BibTextEntry.
-func parser(input <-chan dividerResult, output chan<- BibtexEntry) {
-	for item := range input {
+func (c *Tex2BibConverter) parser() {
+	for item := range c.stage1OutChannel {
 
-		entry := &OnlineEntry{}
-		entry.Key = item.key
+		// entry := &BasicOnlineBibtexEntry{}
+		log.Printf(item.value)
 
-		//TODO add the real parser :)
-		output <- entry
+		var entryURL string
+		var entryAuthors []string
+		var entryTitle string
+		var entryYear int
+		var entryVisited *time.Time
+
+		tokens := strings.Split(item.value, ",")
+
+		// trying to extract the URL and set it
+		entryURL = extractURL(item.value)
+
+		// determine how many splits we have
+		tokenLen := len(tokens)
+		switch tokenLen {
+		case 1:
+			entryTitle = tokens[0]
+		case 2:
+			// just one author
+			entryAuthors = tokens[0:1]
+			if entryURL == "" {
+				entryTitle = tokens[1]
+			}
+		case 3:
+			entryAuthors = tokens[0:1]
+			// trying to find out if the year
+			// is the last token
+			entryYear = extractYear(tokens[tokenLen-1])
+			if entryURL == "" && entryYear == 0 {
+				// author, author, title
+				entryAuthors = append(entryAuthors, tokens[1])
+				entryTitle = tokens[2]
+			} else {
+				// author, title, year|URL
+				entryTitle = tokens[1]
+			}
+		default:
+
+			// default case, no URL, no year
+			lastAuthorIndex := tokenLen - 2
+			titleIndex := tokenLen - 1
+
+			// if URL is not empty, go back of one position
+			if entryURL != "" {
+				lastAuthorIndex--
+				titleIndex--
+			}
+			//  searching the year
+			entryYear = extractYear(tokens[tokenLen-1])
+			if entryYear == 0 {
+				entryYear = extractYear(tokens[tokenLen-2])
+			}
+
+			if entryYear != 0 {
+				// going back of one position
+				lastAuthorIndex--
+				titleIndex--
+			}
+
+			entryAuthors = tokens[:lastAuthorIndex+1]
+			entryTitle = tokens[titleIndex]
+		}
+
+		// now applying defaults
+		if c.config.DefaultVisited != nil {
+			entryVisited = c.config.DefaultVisited
+		}
+
+		if entryYear == 0 {
+			entryYear = c.config.DefaultYear
+		}
+
+		entry := &BasicOnlineBibtexEntry{}
+		if entryVisited != nil {
+			entry := &AdvancedOnlineBibtexEntry{}
+			entry.Visited = entryVisited
+		}
+
+		entry.Title = strings.TrimSpace(entryTitle)
+		for i, author := range entryAuthors {
+			entryAuthors[i] = strings.TrimSpace(author)
+		}
+		entry.Authors = entryAuthors
+		entry.URL = entryURL
+		entry.Year = entryYear
+
+		key := item.key
+		if key == "" {
+			key = entry.GenKey()
+		}
+		entry.Key = key
+
+		c.stage2OutChannel <- entry
 	}
+	close(c.stage2OutChannel)
+}
+
+// Convert starts the conversion into different goroutines and
+// prints result to c.Output (last stage yet to be done)
+func (c *Tex2BibConverter) Convert() {
+	go c.parser()
+	go divider(c.reader, c.stage1OutChannel, c.errorChannel)
 }

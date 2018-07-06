@@ -32,6 +32,41 @@ const correctBibliography = `
 \end{thebibliography}
 `
 
+const extendedBibliography = `
+\begin{thebibliography}
+	\bibitem{wcf}
+	Ross Anderson, Why Cryptosystems Fail, 1909, \url{example.com/ra/wcf.pdf}
+
+	\bibitem{wcdf}
+	Ross Anderson, Why Cryptosystems Don't Fail
+
+	\bibitem{aass}
+	Asking Alexandria, Someone Somewhere, 2011
+
+\end{thebibliography}
+`
+
+var extendedBibliographyResult = []BasicOnlineBibtexEntry{
+	BasicOnlineBibtexEntry{
+		Title:   "Why Cryptosystems Fail",
+		Authors: []string{"Ross Anderson"},
+		Year:    1909,
+		URL:     "example.com/ra/wcf.pdf",
+		Key:     "wcf",
+	},
+	BasicOnlineBibtexEntry{
+		Title:   "Why Cryptosystems Don't Fail",
+		Authors: []string{"Ross Anderson"},
+		Key:     "wcdf",
+	},
+	BasicOnlineBibtexEntry{
+		Title:   "Someone Somewhere",
+		Authors: []string{"Asking Alexandria"},
+		Year:    2011,
+		Key:     "aass",
+	},
+}
+
 const wrongBibliography = `
 \begin{thebibliography}
 	\bibitem{}
@@ -48,6 +83,36 @@ var bibliographyWriter strings.Builder
 
 type converterTest struct {
 	Converter *Tex2BibConverter
+}
+
+func BibtexEntryEqual(entry1, entry2 *BasicOnlineBibtexEntry) bool {
+	return entry1.Key == entry2.Key
+}
+
+func ExtendedBibtexEntryEqual(entry1, entry2 *BasicOnlineBibtexEntry) bool {
+	if entry1.Key != entry2.Key {
+		return false
+	}
+	if entry1.AuthorsToString() != entry2.AuthorsToString() {
+		return false
+	}
+
+	if entry1.Title != entry2.Title {
+		return false
+	}
+
+	if entry1.URL != "" && entry2.URL != "" {
+		if entry1.URL != entry2.URL {
+			return false
+		}
+	}
+
+	if entry1.Year != 0 && entry2.Year != 0 {
+		if entry1.Year != entry2.Year {
+			return false
+		}
+	}
+	return true
 }
 
 func gotExpected(got, expected string, checkSimilar bool, t *testing.T) {
@@ -70,10 +135,14 @@ func initConverter(c *Config) *converterTest {
 	return &converterTest{converter}
 }
 
-func (c *converterTest) runDivider() (chan dividerResult, chan error) {
+func (t *converterTest) convert() {
+	t.Converter.Convert()
+}
+
+func (t *converterTest) runDivider() (chan dividerResult, chan error) {
 	output := make(chan dividerResult, 2)
 	errChan := make(chan error, 2)
-	go divider(c.Converter.reader, output, errChan)
+	go divider(t.Converter.reader, output, errChan)
 	return output, errChan
 }
 
@@ -83,7 +152,6 @@ func runKeyFromLine(line string) (string, error) {
 
 func runExtractURL(line string) string {
 	return extractURL(line)
-
 }
 
 func TestDividerOk(t *testing.T) {
@@ -176,4 +244,35 @@ func TestExtractEmptyURL(t *testing.T) {
 	expected := ""
 	got := runExtractURL(line)
 	gotExpected(got, expected, false, t)
+}
+
+func TestParser(t *testing.T) {
+	config := &Config{
+		Input:       strings.NewReader(extendedBibliography),
+		DefaultYear: 1900,
+	}
+	converter := initConverter(config)
+	converter.convert()
+
+	i := 0
+
+	loop := true
+	for loop {
+		select {
+		case err := <-converter.Converter.errorChannel:
+			t.Errorf(err.Error())
+			loop = false
+		case bibEntry, ok := <-converter.Converter.stage2OutChannel:
+			if !ok {
+				loop = false
+			} else {
+				t.Logf(bibEntry.String())
+				if !ExtendedBibtexEntryEqual(bibEntry.(*BasicOnlineBibtexEntry), &extendedBibliographyResult[i]) {
+					t.Errorf("Fail to check: %s %s", bibEntry.String(), extendedBibliographyResult[i].String())
+				}
+				i++
+			}
+		}
+	}
+
 }
