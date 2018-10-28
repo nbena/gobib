@@ -33,7 +33,7 @@ const correctBibliography = `
 \end{thebibliography}
 `
 
-const extendedBibliography = `
+const bib = `
 \begin{thebibliography}
 	\bibitem{wcf}
 	Ross Anderson, Why Cryptosystems Fail, 1909, \url{example.com/ra/wcf.pdf}
@@ -47,72 +47,66 @@ const extendedBibliography = `
 \end{thebibliography}
 `
 
-var extendedBibliographyResult = []AdvancedOnlineBibtexEntry{
-	AdvancedOnlineBibtexEntry{
-		BasicOnlineBibtexEntry: BasicOnlineBibtexEntry{
-			Title:   "Why Cryptosystems Fail",
-			Authors: []string{"Ross Anderson"},
-			Year:    1909,
-			URL:     "example.com/ra/wcf.pdf",
-			Key:     "wcf",
-		},
+var bibResult = []Entry{
+	{
+		Title:   "Why Cryptosystems Fail",
+		Authors: []string{"Ross Anderson"},
+		Year:    1909,
+		URL:     "example.com/ra/wcf.pdf",
+		Key:     "wcf",
 	},
-	AdvancedOnlineBibtexEntry{
-		BasicOnlineBibtexEntry: BasicOnlineBibtexEntry{
-			Title:   "Why Cryptosystems Don't Fail",
-			Authors: []string{"Ross Anderson"},
-			Key:     "wcdf",
-		},
+	{
+		Title:   "Why Cryptosystems Don't Fail",
+		Authors: []string{"Ross Anderson"},
+		Key:     "wcdf",
 	},
-	AdvancedOnlineBibtexEntry{
-		BasicOnlineBibtexEntry: BasicOnlineBibtexEntry{
-			Title:   "Someone Somewhere",
-			Authors: []string{"Asking Alexandria"},
-			Year:    2011,
-			Key:     "aass",
-		},
+	{
+		Title:   "Someone Somewhere",
+		Authors: []string{"Asking Alexandria"},
+		Year:    2011,
+		Key:     "aass",
 	},
 }
 
-const expectedExtendedBib = `@online{wcf,
+const expectedBib = `@online{wcf,
 	author = "Ross Anderson",
-	title = "Why Cryptosystems Fail",
+	title = {{Why Cryptosystems Fail}},
 	year = "1909",
-	url = "example.com/ra/wcf.pdf",
+	url = {example.com/ra/wcf.pdf},
 }
 
 @online{wcdf,
 	author = "Ross Anderson",
-	title = "Why Cryptosystems Don't Fail",
+	title = {{Why Cryptosystems Don't Fail}},
 	year = "2010",
 }
 
 @online{aass,
 	author = "Asking Alexandria",
-	title = "Someone Somewhere",
+	title = {{Someone Somewhere}},
 	year = "2011",
 }
 
 `
 
-const expectedExtendedBibWithVisited = `@online{wcf,
+const expectedBibWithVisited = `@online{wcf,
 	author = "Ross Anderson",
-	title = "Why Cryptosystems Fail",
+	title = {{Why Cryptosystems Fail}},
 	year = "1909",
-	url = "example.com/ra/wcf.pdf",
+	url = {example.com/ra/wcf.pdf},
 	urldate = "2018-7-6",
 }
 
 @online{wcdf,
 	author = "Ross Anderson",
-	title = "Why Cryptosystems Don't Fail",
+	title = {{Why Cryptosystems Don't Fail}},
 	year = "2010",
 	urldate = "2018-7-6",
 }
 
 @online{aass,
 	author = "Asking Alexandria",
-	title = "Someone Somewhere",
+	title = {{Someone Somewhere}},
 	year = "2011",
 	urldate = "2018-7-6",
 }
@@ -128,19 +122,18 @@ const wrongBibliography = `
 	Ross Anderson, Why Cryptosystems Don't Fail
 `
 
-var bibliographyReader = strings.NewReader(correctBibliography)
-var wrongBibliographyReader = strings.NewReader(wrongBibliography)
-var emptyBibliographyReader = strings.NewReader("")
+// var wrongBibliographyReader = strings.NewReader(wrongBibliography)
+// var emptyBibliographyReader = strings.NewReader("")
 
 type converterTest struct {
 	Converter *Tex2BibConverter
 }
 
-func BibtexEntryEqual(entry1, entry2 *BasicOnlineBibtexEntry) bool {
-	return entry1.Key == entry2.Key
-}
+// func BibtexEntryEqual(entry1, entry2 *Entry) bool {
+//	return entry1.Key == entry2.Key
+// }
 
-func ExtendedBibtexEntryEqual(entry1, entry2 BasicOnlineBibtexEntry) bool {
+func ExtendedBibtexEntryEqual(entry1, entry2 *Entry) bool {
 	if entry1.Key != entry2.Key {
 		return false
 	}
@@ -200,6 +193,7 @@ func runExtractURL(line string) string {
 
 func TestDividerOk(t *testing.T) {
 	var writer strings.Builder
+	bibliographyReader := strings.NewReader(correctBibliography)
 	converter := initConverter(&Config{
 		Input:  bibliographyReader,
 		Output: &writer,
@@ -236,6 +230,7 @@ func TestDividerOk(t *testing.T) {
 
 func TestDividerNoEnd(t *testing.T) {
 	var writer strings.Builder
+	wrongBibliographyReader := strings.NewReader(wrongBibliography)
 	converter := initConverter(&Config{
 		Input:  wrongBibliographyReader,
 		Output: &writer,
@@ -252,6 +247,7 @@ func TestDividerNoEnd(t *testing.T) {
 
 func TestEmptyDivider(t *testing.T) {
 	var writer strings.Builder
+	wrongBibliographyReader := strings.NewReader("")
 	converter := initConverter(&Config{
 		Input:  wrongBibliographyReader,
 		Output: &writer,
@@ -262,7 +258,7 @@ func TestEmptyDivider(t *testing.T) {
 	if err == nil {
 		t.Fatalf("error is nil")
 	} else if err != ErrBibEmpty {
-		t.Fatalf("err != ErrBibEmpty" + err.Error())
+		t.Fatalf("err != ErrBibEmpty: " + err.Error())
 	}
 }
 
@@ -295,7 +291,7 @@ func TestExtractEmptyURL(t *testing.T) {
 
 func TestParser(t *testing.T) {
 	config := &Config{
-		Input:       strings.NewReader(extendedBibliography),
+		Input:       strings.NewReader(bib),
 		DefaultYear: 1900,
 	}
 	converter := initConverter(config)
@@ -317,9 +313,8 @@ func TestParser(t *testing.T) {
 				loop = false
 			} else {
 				t.Logf(bibEntry.String())
-				if !ExtendedBibtexEntryEqual(bibEntry.(*AdvancedOnlineBibtexEntry).BasicOnlineBibtexEntry,
-					extendedBibliographyResult[i].BasicOnlineBibtexEntry) {
-					t.Errorf("Fail to check: %s %s", bibEntry.String(), extendedBibliographyResult[i].String())
+				if !ExtendedBibtexEntryEqual(bibEntry.(*Entry), &bibResult[i]) {
+					t.Errorf("Fail to check: %s %s", bibEntry.String(), bibResult[i].String())
 				}
 				i++
 			}
@@ -352,11 +347,11 @@ func TestCompleteEmptyVisit(t *testing.T) {
 	var writer strings.Builder
 	config := &Config{
 		Output:      &writer,
-		Input:       strings.NewReader(extendedBibliography),
+		Input:       strings.NewReader(bib),
 		DefaultYear: 2010,
 	}
 
-	runTestComplete(config, expectedExtendedBib, t)
+	runTestComplete(config, expectedBib, t)
 }
 
 func TestCompleteWithVisit(t *testing.T) {
@@ -364,19 +359,19 @@ func TestCompleteWithVisit(t *testing.T) {
 	defaultTime, _ := time.Parse("2006-01-02", "2018-07-06")
 	config := &Config{
 		Output:         &writer,
-		Input:          strings.NewReader(extendedBibliography),
+		Input:          strings.NewReader(bib),
 		DefaultYear:    2010,
 		DefaultVisited: &defaultTime,
 	}
-	runTestComplete(config, expectedExtendedBibWithVisited, t)
+	runTestComplete(config, expectedBibWithVisited, t)
 }
 
 func TestNewBasic(t *testing.T) {
-	NewBasicEntry("key", []string{"author0"}, "title", 2018, "")
+	NewEntry("key", []string{"author0"}, "title", 2018, "", nil)
 }
 
 func TestNewAdvancedWithKey(t *testing.T) {
-	entry := NewAdvancedEntry("", []string{"foo"}, "bar", 2018, "", nil)
+	entry := NewEntry("", []string{"foo"}, "bar", 2018, "", nil)
 	expected := "bar-2018-foo"
 	got := entry.Key
 	if expected != got {
